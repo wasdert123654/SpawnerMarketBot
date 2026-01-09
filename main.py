@@ -1,144 +1,177 @@
-import os
 import discord
 from discord.ext import commands
+import os
+import re
 
-TOKEN = os.getenv("TOKEN")
+# CONFIG
+COMMAND_PREFIX = "!"
+CUSTOMER_ROLE_ID = 1446629248491327550
+ADMIN_ROLE_IDS = [1446628032541491384]
 
+TOKEN = os.getenv("TOKEN")  # Must be set in Railway environment variables
+
+# BOT SETUP
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="/", intents=intents)
+bot = commands.Bot(command_prefix=COMMAND_PREFIX, help_command=None, intents=intents)
+
+# USER DATA
+igns = {}
+
+# UTILITIES
+def parse_number(value: str):
+    value = value.lower().replace(",", "").strip()
+    if value.endswith("k"):
+        return int(float(value[:-1]) * 1_000)
+    elif value.endswith("m"):
+        return int(float(value[:-1]) * 1_000_000)
+    elif value.endswith("b"):
+        return int(float(value[:-1]) * 1_000_000_000)
+    else:
+        return int(value)
+
+def calculate_expression(expr: str):
+    def replacer(match):
+        return str(parse_number(match.group(0)))
+    expr = re.sub(r"\d+(\.\d+)?[kKmMbB]", replacer, expr)
+    return int(eval(expr))
 
 
-# =========================================
-#              ON READY
-# =========================================
+# EVENTS
 @bot.event
 async def on_ready():
-    print(f"Bot is online as {bot.user}")
+    print(f"Bot online as {bot.user}!")
 
 
-# =========================================
-#              HELP COMMAND
-# =========================================
-@bot.command(name="myhelp")
-async def myhelp(ctx):
+# COMMANDS
+@bot.command()
+async def help(ctx):
     embed = discord.Embed(
-        title="Available Commands",
-        description=(
-            "**/pay <amount+fee>** - Calculates fee\n"
-            "**/percent <percent> <amount>** - Calculate percent of an amount\n"
-            "**/roleadd <role> <user>** - Adds a role\n"
-            "**/roleremove <role> <user>** - Removes a role\n"
-        ),
-        color=0x00ff00
+        title="Help",
+        description="Commands:",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="!calc <expr>", value="Calculates expressions like 5m+2k", inline=False)
+    embed.add_field(name="!acalc <expr>", value="Calculates and outputs /pay <IGN> <amount>", inline=False)
+    embed.add_field(name="!percent <percent> <amount>", value="Calculate percent of an amount, e.g. !percent 2 50m", inline=False)
+    embed.add_field(name="!ign <username>", value="Set your IGN", inline=False)
+    embed.add_field(name="!roleadd customer @user", value="Add customer role (admin only)", inline=False)
+    embed.add_field(name="!roleremove customer @user", value="Remove customer role (admin only)", inline=False)
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.command()
+async def ign(ctx, *, ign_name):
+    igns[ctx.author.id] = ign_name
+    embed = discord.Embed(
+        title="IGN Set",
+        description=f"Your IGN is now: `{ign_name}`",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.command()
+async def calc(ctx, *, expression):
+    try:
+        total = calculate_expression(expression)
+    except Exception:
+        await ctx.reply("Invalid expression!", mention_author=False)
+        return
+    embed = discord.Embed(
+        title="Result",
+        description=f"{total:,}",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.command()
+async def acalc(ctx, *, expression):
+    user_ign = igns.get(ctx.author.id)
+    if not user_ign:
+        await ctx.reply("Set your IGN first with !ign <username>", mention_author=False)
+        return
+    try:
+        total = calculate_expression(expression)
+    except Exception:
+        await ctx.reply("Invalid expression!", mention_author=False)
+        return
+    embed = discord.Embed(
+        title="ACalc Result",
+        description=f"/pay {user_ign} {total:,}",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+# =====================================
+#         NEW PERCENT COMMAND
+# =====================================
+@bot.command()
+async def percent(ctx, percent_value: float, amount: str):
+    """Calculate percent of amount. Example: !percent 2 500m"""
+
+    try:
+        amount_value = parse_number(amount)
+    except:
+        await ctx.reply("Invalid amount format! Use 10m or 5b etc.", mention_author=False)
+        return
+
+    result = amount_value * (percent_value / 100)
+
+    embed = discord.Embed(
+        title="Percent Calculator",
+        description=f"**{percent_value}%** of **{amount_value:,}** = **{result:,}**",
+        color=discord.Color.purple()
     )
 
-    await ctx.reply(embed=embed, mention_author=True)
+    await ctx.reply(embed=embed, mention_author=False)
 
 
-# =========================================
-#          PAY CALCULATOR (5m+5)
-# =========================================
-@bot.command(name="pay")
-async def pay(ctx, input_value: str):
-    """
-    Format example: 5m+5 or 10b+2
-    """
-
-    def convert(x):
-        x = x.lower()
-        if "m" in x:
-            return float(x.replace("m", "")) * 1_000_000
-        elif "b" in x:
-            return float(x.replace("b", "")) * 1_000_000_000
-        else:
-            return float(x)
-
-    try:
-        base, percent = input_value.split("+")
-        base_value = convert(base)
-        percent_value = float(percent)
-
-        total = base_value + (base_value * percent_value / 100)
-
-        await ctx.reply(
-            f"💰 **Payment Result**\n"
-            f"Base: `{base_value:,.0f}`\n"
-            f"Fee: `{percent_value}%`\n"
-            f"Total: `{total:,.0f}`",
-            mention_author=True
-        )
-
-    except:
-        await ctx.reply("❌ Invalid format! Use: `/pay 5m+5`", mention_author=True)
-
-
-# =========================================
-#        PERCENT CALCULATOR (2% of 500m)
-# =========================================
-@bot.command(name="percent")
-async def percent(ctx, percent_value: float, amount: str):
-    def convert(x):
-        x = x.lower()
-        if "m" in x:
-            return float(x.replace("m", "")) * 1_000_000
-        elif "b" in x:
-            return float(x.replace("b", "")) * 1_000_000_000
-        else:
-            return float(x)
-
-    try:
-        amount_value = convert(amount)
-        result = amount_value * (percent_value / 100)
-
-        await ctx.reply(
-            f"📊 **Percent Calculation**\n"
-            f"{percent_value}% of `{amount_value:,.0f}` = **{result:,.0f}**",
-            mention_author=True
-        )
-
-    except:
-        await ctx.reply("❌ Invalid amount format! Example: `/percent 2 500m`")
-
-
-# =========================================
-#             ROLE ADD
-# =========================================
-@bot.command(name="roleadd")
-async def roleadd(ctx, role_name: str, member: discord.Member = None):
-    if member is None:
-        member = ctx.author
-
-    role = discord.utils.get(ctx.guild.roles, name=role_name)
-    if role is None:
-        return await ctx.reply("❌ Role not found.", mention_author=True)
-
+@bot.command()
+async def roleadd(ctx, member: discord.Member = None):
+    if ctx.author.id not in ADMIN_ROLE_IDS:
+        await ctx.reply("You do not have permission.", mention_author=False)
+        return
+    if not member:
+        await ctx.reply("Mention a user.", mention_author=False)
+        return
+    role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
+    if not role:
+        await ctx.reply("Customer role not found.", mention_author=False)
+        return
     await member.add_roles(role)
-    await ctx.reply(f"✅ Added role **{role_name}** to {member.mention}", mention_author=True)
+    embed = discord.Embed(
+        title="Role Added",
+        description=f"Added `{role.name}` to {member.display_name}",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
 
 
-# =========================================
-#             ROLE REMOVE
-# =========================================
-@bot.command(name="roleremove")
-async def roleremove(ctx, role_name: str, member: discord.Member = None):
-    if member is None:
-        member = ctx.author
-
-    role = discord.utils.get(ctx.guild.roles, name=role_name)
-    if role is None:
-        return await ctx.reply("❌ Role not found.", mention_author=True)
-
+@bot.command()
+async def roleremove(ctx, member: discord.Member = None):
+    if ctx.author.id not in ADMIN_ROLE_IDS:
+        await ctx.reply("You do not have permission.", mention_author=False)
+        return
+    if not member:
+        await ctx.reply("Mention a user.", mention_author=False)
+        return
+    role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
+    if not role:
+        await ctx.reply("Customer role not found.", mention_author=False)
+        return
     await member.remove_roles(role)
-    await ctx.reply(f"❌ Removed role **{role_name}** from {member.mention}", mention_author=True)
+    embed = discord.Embed(
+        title="Role Removed",
+        description=f"Removed `{role.name}` from {member.display_name}",
+        color=discord.Color.red()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
 
 
-# =========================================
-#              RUN BOT
-# =========================================
-if TOKEN is None:
-    print("ERROR: TOKEN missing in Railway!")
-else:
-    bot.run(TOKEN)
+# RUN BOT
+bot.run(TOKEN)
