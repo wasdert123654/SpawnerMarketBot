@@ -128,7 +128,7 @@ async def roleremove(ctx, role_name=None, member: discord.Member = None):
 
 # ----------------------------- HELP COMMAND -----------------------------
 
-@bot.command(name="help")
+@bot.command(name="commands")
 async def help_command(ctx):
     embed = discord.Embed(
         title="Spawner Market Bot Commands",
@@ -145,3 +145,4 @@ async def help_command(ctx):
 
 
 bot.run(TOKEN)
+
