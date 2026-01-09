@@ -13,7 +13,9 @@ TOKEN = os.getenv("TOKEN")
 
 # ===== BOT SETUP =====
 intents = discord.Intents.default()
-intents.members = True  # Needed for role commands
+intents.members = True            # Needed for role commands
+intents.message_content = True    # Needed for !commands to work
+
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, help_command=None, intents=intents)
 
 # ===== USER DATA =====
@@ -21,6 +23,7 @@ igns = {}  # Stores user's IGN
 
 # ===== UTILITIES =====
 def parse_number(value: str):
+    """Convert k/m/b shorthand to integer"""
     value = value.lower().replace(",", "").strip()
     if value.endswith("k"):
         return int(float(value[:-1]) * 1_000)
@@ -32,6 +35,7 @@ def parse_number(value: str):
         return int(value)
 
 def calculate_expression(expr: str):
+    """Parse expression with k/m/b and calculate"""
     def replacer(match):
         return str(parse_number(match.group(0)))
     expr = re.sub(r"\d+(\.\d+)?[kKmMbB]", replacer, expr)
