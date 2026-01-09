@@ -3,27 +3,25 @@ from discord.ext import commands
 import os
 import re
 
-# ===== CONFIG =====
+# CONFIG
 COMMAND_PREFIX = "!"
 CUSTOMER_ROLE_ID = 1446629248491327550
-ADMIN_ROLE_IDS = [1446628032541491384, 1446628032541491384]
+ADMIN_ROLE_IDS = [1446628032541491384]
 
-# Get token from environment
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN")  # Must be set in Railway environment variables
 
-# ===== BOT SETUP =====
+# BOT SETUP
 intents = discord.Intents.default()
-intents.members = True            # Needed for role commands
-intents.message_content = True    # Needed for !commands to work
+intents.members = True
+intents.message_content = True
 
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, help_command=None, intents=intents)
 
-# ===== USER DATA =====
-igns = {}  # Stores user's IGN
+# USER DATA
+igns = {}
 
-# ===== UTILITIES =====
+# UTILITIES
 def parse_number(value: str):
-    """Convert k/m/b shorthand to integer"""
     value = value.lower().replace(",", "").strip()
     if value.endswith("k"):
         return int(float(value[:-1]) * 1_000)
@@ -35,46 +33,41 @@ def parse_number(value: str):
         return int(value)
 
 def calculate_expression(expr: str):
-    """Parse expression with k/m/b and calculate"""
     def replacer(match):
         return str(parse_number(match.group(0)))
     expr = re.sub(r"\d+(\.\d+)?[kKmMbB]", replacer, expr)
     return int(eval(expr))
 
-# ===== EVENTS =====
+# EVENTS
 @bot.event
 async def on_ready():
-    print(f"Bot is online as {bot.user}!")
+    print(f"Bot online as {bot.user}!")
 
-# ===== COMMANDS =====
-
-# Custom help
+# COMMANDS
 @bot.command()
 async def help(ctx):
     embed = discord.Embed(
-        title="Spawner Market Bot - Help",
-        description="List of available commands:",
+        title="Help",
+        description="Commands:",
         color=discord.Color.blue()
     )
-    embed.add_field(name="!calc <expression>", value="Calculates values like 1+1 or 5m+2k", inline=False)
-    embed.add_field(name="!acalc <expression>", value="Calculates and outputs /pay <your_ign> <amount>", inline=False)
-    embed.add_field(name="!ign <username>", value="Set your in-game name for acalc", inline=False)
-    embed.add_field(name="!roleadd customer @user", value="Add Customer role (admin only)", inline=False)
-    embed.add_field(name="!roleremove customer @user", value="Remove Customer role (admin only)", inline=False)
+    embed.add_field(name="!calc <expr>", value="Calculates expressions like 5m+2k", inline=False)
+    embed.add_field(name="!acalc <expr>", value="Calculates and outputs /pay <IGN> <amount>", inline=False)
+    embed.add_field(name="!ign <username>", value="Set your IGN", inline=False)
+    embed.add_field(name="!roleadd customer @user", value="Add customer role (admin only)", inline=False)
+    embed.add_field(name="!roleremove customer @user", value="Remove customer role (admin only)", inline=False)
     await ctx.reply(embed=embed, mention_author=False)
 
-# Set IGN
 @bot.command()
 async def ign(ctx, *, ign_name):
     igns[ctx.author.id] = ign_name
     embed = discord.Embed(
-        title="IGN Set!",
+        title="IGN Set",
         description=f"Your IGN is now: `{ign_name}`",
         color=discord.Color.green()
     )
     await ctx.reply(embed=embed, mention_author=False)
 
-# !calc command
 @bot.command()
 async def calc(ctx, *, expression):
     try:
@@ -83,13 +76,12 @@ async def calc(ctx, *, expression):
         await ctx.reply("Invalid expression!", mention_author=False)
         return
     embed = discord.Embed(
-        title="Calculation Result",
+        title="Result",
         description=f"{total:,}",
         color=discord.Color.green()
     )
     await ctx.reply(embed=embed, mention_author=False)
 
-# !acalc command
 @bot.command()
 async def acalc(ctx, *, expression):
     user_ign = igns.get(ctx.author.id)
@@ -102,20 +94,19 @@ async def acalc(ctx, *, expression):
         await ctx.reply("Invalid expression!", mention_author=False)
         return
     embed = discord.Embed(
-        title="Calculation Result",
+        title="ACalc Result",
         description=f"/pay {user_ign} {total:,}",
         color=discord.Color.green()
     )
     await ctx.reply(embed=embed, mention_author=False)
 
-# Add customer role
-@bot.command(name="roleadd")
-async def roleadd_customer(ctx, member: discord.Member = None):
+@bot.command()
+async def roleadd(ctx, member: discord.Member = None):
     if ctx.author.id not in ADMIN_ROLE_IDS:
-        await ctx.reply("You do not have permission to use this command.", mention_author=False)
+        await ctx.reply("You do not have permission.", mention_author=False)
         return
     if not member:
-        await ctx.reply("Please mention a user.", mention_author=False)
+        await ctx.reply("Mention a user.", mention_author=False)
         return
     role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
     if not role:
@@ -124,19 +115,18 @@ async def roleadd_customer(ctx, member: discord.Member = None):
     await member.add_roles(role)
     embed = discord.Embed(
         title="Role Added",
-        description=f"Added `{role.name}` role to {member.display_name}",
+        description=f"Added `{role.name}` to {member.display_name}",
         color=discord.Color.green()
     )
     await ctx.reply(embed=embed, mention_author=False)
 
-# Remove customer role
-@bot.command(name="roleremove")
-async def roleremove_customer(ctx, member: discord.Member = None):
+@bot.command()
+async def roleremove(ctx, member: discord.Member = None):
     if ctx.author.id not in ADMIN_ROLE_IDS:
-        await ctx.reply("You do not have permission to use this command.", mention_author=False)
+        await ctx.reply("You do not have permission.", mention_author=False)
         return
     if not member:
-        await ctx.reply("Please mention a user.", mention_author=False)
+        await ctx.reply("Mention a user.", mention_author=False)
         return
     role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
     if not role:
@@ -145,10 +135,10 @@ async def roleremove_customer(ctx, member: discord.Member = None):
     await member.remove_roles(role)
     embed = discord.Embed(
         title="Role Removed",
-        description=f"Removed `{role.name}` role from {member.display_name}",
+        description=f"Removed `{role.name}` from {member.display_name}",
         color=discord.Color.red()
     )
     await ctx.reply(embed=embed, mention_author=False)
 
-# ===== RUN BOT =====
+# RUN BOT
 bot.run(TOKEN)
