@@ -1,144 +1,102 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import os
 import re
 
-# CONFIG
-COMMAND_PREFIX = "!"
-CUSTOMER_ROLE_ID = 1446629248491327550
-ADMIN_ROLE_IDS = [1446628032541491384]
+TOKEN = os.getenv("TOKEN")
 
-TOKEN = os.getenv("TOKEN")  # Must be set in Railway environment variables
-
-# BOT SETUP
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix=COMMAND_PREFIX, help_command=None, intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
+tree = bot.tree
 
-# USER DATA
 igns = {}
 
-# UTILITIES
+# 🔹 Parse "5m", "2.5b", "3k"
 def parse_number(value: str):
     value = value.lower().replace(",", "").strip()
     if value.endswith("k"):
-        return int(float(value[:-1]) * 1_000)
-    elif value.endswith("m"):
-        return int(float(value[:-1]) * 1_000_000)
-    elif value.endswith("b"):
-        return int(float(value[:-1]) * 1_000_000_000)
-    else:
-        return int(value)
+        return float(value[:-1]) * 1_000
+    if value.endswith("m"):
+        return float(value[:-1]) * 1_000_000
+    if value.endswith("b"):
+        return float(value[:-1]) * 1_000_000_000
+    return float(value)
 
+# 🔹 Convert expression "5m+2k-3m"
 def calculate_expression(expr: str):
-    def replacer(match):
+    def repl(match):
         return str(parse_number(match.group(0)))
-    expr = re.sub(r"\d+(\.\d+)?[kKmMbB]", replacer, expr)
-    return int(eval(expr))
+    expr = re.sub(r"\d+(\.\d+)?[kmbKMB]", repl, expr)
+    return eval(expr)
 
-# EVENTS
+# 🔹 Parse percent like "2% of 5m"
+def calculate_percent(percent_str: str):
+    match = re.match(r"(\d+(?:\.\d+)?)%\s*(?:of)?\s*(.+)", percent_str.replace(" ", ""), re.IGNORECASE)
+    if not match:
+        return None, None
+    pct = float(match.group(1))
+    base = calculate_expression(match.group(2))
+    result = (pct / 100) * base
+    return pct, result
+
 @bot.event
 async def on_ready():
-    print(f"Bot online as {bot.user}!")
+    print(f"Logged in as {bot.user}")
+    try:
+        synced = await tree.sync()
+        print(f"Synced {len(synced)} slash commands.")
+    except Exception as e:
+        print("Slash command sync error:", e)
 
-# COMMANDS
-@bot.command()
-async def help(ctx):
-    embed = discord.Embed(
-        title="Help",
-        description="Commands:",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name="!calc <expr>", value="Calculates expressions like 5m+2k", inline=False)
-    embed.add_field(name="!acalc <expr>", value="Calculates and outputs /pay <IGN> <amount>", inline=False)
-    embed.add_field(name="!ign <username>", value="Set your IGN", inline=False)
-    embed.add_field(name="!roleadd customer @user", value="Add customer role (admin only)", inline=False)
-    embed.add_field(name="!roleremove customer @user", value="Remove customer role (admin only)", inline=False)
-    await ctx.reply(embed=embed, mention_author=False)
+# --------------------------
+# 🔥 SLASH COMMANDS
+# --------------------------
 
-@bot.command()
-async def ign(ctx, *, ign_name):
-    igns[ctx.author.id] = ign_name
-    embed = discord.Embed(
-        title="IGN Set",
-        description=f"Your IGN is now: `{ign_name}`",
-        color=discord.Color.green()
-    )
-    await ctx.reply(embed=embed, mention_author=False)
+@tree.command(name="help", description="Shows all commands")
+async def help_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(title="Commands List", color=discord.Color.blue())
+    embed.add_field(name="/calc <expression>", value="Calculate values like `5m+2k`", inline=False)
+    embed.add_field(name="/percent <expression>", value="Calculate percentages like `2% of 500m`", inline=False)
+    embed.add_field(name="/ign <username>", value="Set your IGN", inline=False)
+    embed.add_field(name="/acalc <expression>", value="Calculate and format `/pay <IGN> <amount>`", inline=False)
+    await interaction.response.send_message(embed=embed)
 
-@bot.command()
-async def calc(ctx, *, expression):
+@tree.command(name="ign", description="Set your in-game name")
+async def ign_cmd(interaction: discord.Interaction, name: str):
+    igns[interaction.user.id] = name
+    await interaction.response.send_message(f"IGN set to **{name}**")
+
+@tree.command(name="calc", description="Calculate expressions like 5m+2k")
+async def calc_cmd(interaction: discord.Interaction, expression: str):
     try:
         total = calculate_expression(expression)
-    except Exception:
-        await ctx.reply("Invalid expression!", mention_author=False)
-        return
-    embed = discord.Embed(
-        title="Result",
-        description=f"{total:,}",
-        color=discord.Color.green()
-    )
-    await ctx.reply(embed=embed, mention_author=False)
+        await interaction.response.send_message(f"**Result:** {total:,.0f}")
+    except:
+        await interaction.response.send_message("Invalid expression!", ephemeral=True)
 
-@bot.command()
-async def acalc(ctx, *, expression):
-    user_ign = igns.get(ctx.author.id)
-    if not user_ign:
-        await ctx.reply("Set your IGN first with !ign <username>", mention_author=False)
+@tree.command(name="acalc", description="Calculate /pay IGN amount")
+async def acalc_cmd(interaction: discord.Interaction, expression: str):
+    ign = igns.get(interaction.user.id)
+    if not ign:
+        await interaction.response.send_message("You must set your IGN first using `/ign <name>`.", ephemeral=True)
         return
     try:
         total = calculate_expression(expression)
-    except Exception:
-        await ctx.reply("Invalid expression!", mention_author=False)
+    except:
+        await interaction.response.send_message("Invalid expression!", ephemeral=True)
         return
-    embed = discord.Embed(
-        title="ACalc Result",
-        description=f"/pay {user_ign} {total:,}",
-        color=discord.Color.green()
-    )
-    await ctx.reply(embed=embed, mention_author=False)
+    await interaction.response.send_message(f"/pay **{ign}** **{total:,.0f}**")
 
-@bot.command()
-async def roleadd(ctx, member: discord.Member = None):
-    if ctx.author.id not in ADMIN_ROLE_IDS:
-        await ctx.reply("You do not have permission.", mention_author=False)
+@tree.command(name="percent", description="Calculate percentages like 2% of 500m")
+async def percent_cmd(interaction: discord.Interaction, query: str):
+    pct, result = calculate_percent(query)
+    if pct is None:
+        await interaction.response.send_message("Invalid percent format! Example: `2% of 500m`", ephemeral=True)
         return
-    if not member:
-        await ctx.reply("Mention a user.", mention_author=False)
-        return
-    role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
-    if not role:
-        await ctx.reply("Customer role not found.", mention_author=False)
-        return
-    await member.add_roles(role)
-    embed = discord.Embed(
-        title="Role Added",
-        description=f"Added `{role.name}` to {member.display_name}",
-        color=discord.Color.green()
-    )
-    await ctx.reply(embed=embed, mention_author=False)
+    await interaction.response.send_message(f"**{pct}%** of the amount is **{result:,.0f}**")
 
-@bot.command()
-async def roleremove(ctx, member: discord.Member = None):
-    if ctx.author.id not in ADMIN_ROLE_IDS:
-        await ctx.reply("You do not have permission.", mention_author=False)
-        return
-    if not member:
-        await ctx.reply("Mention a user.", mention_author=False)
-        return
-    role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
-    if not role:
-        await ctx.reply("Customer role not found.", mention_author=False)
-        return
-    await member.remove_roles(role)
-    embed = discord.Embed(
-        title="Role Removed",
-        description=f"Removed `{role.name}` from {member.display_name}",
-        color=discord.Color.red()
-    )
-    await ctx.reply(embed=embed, mention_author=False)
-
-# RUN BOT
 bot.run(TOKEN)
