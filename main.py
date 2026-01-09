@@ -1,8 +1,6 @@
+import os
 import discord
 from discord.ext import commands
-from discord import app_commands
-import os
-import re
 
 TOKEN = os.getenv("TOKEN")
 
@@ -10,93 +8,137 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree
+bot = commands.Bot(command_prefix="/", intents=intents)
 
-igns = {}
 
-# 🔹 Parse "5m", "2.5b", "3k"
-def parse_number(value: str):
-    value = value.lower().replace(",", "").strip()
-    if value.endswith("k"):
-        return float(value[:-1]) * 1_000
-    if value.endswith("m"):
-        return float(value[:-1]) * 1_000_000
-    if value.endswith("b"):
-        return float(value[:-1]) * 1_000_000_000
-    return float(value)
-
-# 🔹 Convert expression "5m+2k-3m"
-def calculate_expression(expr: str):
-    def repl(match):
-        return str(parse_number(match.group(0)))
-    expr = re.sub(r"\d+(\.\d+)?[kmbKMB]", repl, expr)
-    return eval(expr)
-
-# 🔹 Parse percent like "2% of 5m"
-def calculate_percent(percent_str: str):
-    match = re.match(r"(\d+(?:\.\d+)?)%\s*(?:of)?\s*(.+)", percent_str.replace(" ", ""), re.IGNORECASE)
-    if not match:
-        return None, None
-    pct = float(match.group(1))
-    base = calculate_expression(match.group(2))
-    result = (pct / 100) * base
-    return pct, result
-
+# =========================================
+#              ON READY
+# =========================================
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+    print(f"Bot is online as {bot.user}")
+
+
+# =========================================
+#              HELP COMMAND
+# =========================================
+@bot.command(name="myhelp")
+async def myhelp(ctx):
+    embed = discord.Embed(
+        title="Available Commands",
+        description=(
+            "**/pay <amount+fee>** - Calculates fee\n"
+            "**/percent <percent> <amount>** - Calculate percent of an amount\n"
+            "**/roleadd <role> <user>** - Adds a role\n"
+            "**/roleremove <role> <user>** - Removes a role\n"
+        ),
+        color=0x00ff00
+    )
+
+    await ctx.reply(embed=embed, mention_author=True)
+
+
+# =========================================
+#          PAY CALCULATOR (5m+5)
+# =========================================
+@bot.command(name="pay")
+async def pay(ctx, input_value: str):
+    """
+    Format example: 5m+5 or 10b+2
+    """
+
+    def convert(x):
+        x = x.lower()
+        if "m" in x:
+            return float(x.replace("m", "")) * 1_000_000
+        elif "b" in x:
+            return float(x.replace("b", "")) * 1_000_000_000
+        else:
+            return float(x)
+
     try:
-        synced = await tree.sync()
-        print(f"Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print("Slash command sync error:", e)
+        base, percent = input_value.split("+")
+        base_value = convert(base)
+        percent_value = float(percent)
 
-# --------------------------
-# 🔥 SLASH COMMANDS
-# --------------------------
+        total = base_value + (base_value * percent_value / 100)
 
-@tree.command(name="help", description="Shows all commands")
-async def help_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(title="Commands List", color=discord.Color.blue())
-    embed.add_field(name="/calc <expression>", value="Calculate values like `5m+2k`", inline=False)
-    embed.add_field(name="/percent <expression>", value="Calculate percentages like `2% of 500m`", inline=False)
-    embed.add_field(name="/ign <username>", value="Set your IGN", inline=False)
-    embed.add_field(name="/acalc <expression>", value="Calculate and format `/pay <IGN> <amount>`", inline=False)
-    await interaction.response.send_message(embed=embed)
+        await ctx.reply(
+            f"💰 **Payment Result**\n"
+            f"Base: `{base_value:,.0f}`\n"
+            f"Fee: `{percent_value}%`\n"
+            f"Total: `{total:,.0f}`",
+            mention_author=True
+        )
 
-@tree.command(name="ign", description="Set your in-game name")
-async def ign_cmd(interaction: discord.Interaction, name: str):
-    igns[interaction.user.id] = name
-    await interaction.response.send_message(f"IGN set to **{name}**")
-
-@tree.command(name="calc", description="Calculate expressions like 5m+2k")
-async def calc_cmd(interaction: discord.Interaction, expression: str):
-    try:
-        total = calculate_expression(expression)
-        await interaction.response.send_message(f"**Result:** {total:,.0f}")
     except:
-        await interaction.response.send_message("Invalid expression!", ephemeral=True)
+        await ctx.reply("❌ Invalid format! Use: `/pay 5m+5`", mention_author=True)
 
-@tree.command(name="acalc", description="Calculate /pay IGN amount")
-async def acalc_cmd(interaction: discord.Interaction, expression: str):
-    ign = igns.get(interaction.user.id)
-    if not ign:
-        await interaction.response.send_message("You must set your IGN first using `/ign <name>`.", ephemeral=True)
-        return
+
+# =========================================
+#        PERCENT CALCULATOR (2% of 500m)
+# =========================================
+@bot.command(name="percent")
+async def percent(ctx, percent_value: float, amount: str):
+    def convert(x):
+        x = x.lower()
+        if "m" in x:
+            return float(x.replace("m", "")) * 1_000_000
+        elif "b" in x:
+            return float(x.replace("b", "")) * 1_000_000_000
+        else:
+            return float(x)
+
     try:
-        total = calculate_expression(expression)
+        amount_value = convert(amount)
+        result = amount_value * (percent_value / 100)
+
+        await ctx.reply(
+            f"📊 **Percent Calculation**\n"
+            f"{percent_value}% of `{amount_value:,.0f}` = **{result:,.0f}**",
+            mention_author=True
+        )
+
     except:
-        await interaction.response.send_message("Invalid expression!", ephemeral=True)
-        return
-    await interaction.response.send_message(f"/pay **{ign}** **{total:,.0f}**")
+        await ctx.reply("❌ Invalid amount format! Example: `/percent 2 500m`")
 
-@tree.command(name="percent", description="Calculate percentages like 2% of 500m")
-async def percent_cmd(interaction: discord.Interaction, query: str):
-    pct, result = calculate_percent(query)
-    if pct is None:
-        await interaction.response.send_message("Invalid percent format! Example: `2% of 500m`", ephemeral=True)
-        return
-    await interaction.response.send_message(f"**{pct}%** of the amount is **{result:,.0f}**")
 
-bot.run(TOKEN)
+# =========================================
+#             ROLE ADD
+# =========================================
+@bot.command(name="roleadd")
+async def roleadd(ctx, role_name: str, member: discord.Member = None):
+    if member is None:
+        member = ctx.author
+
+    role = discord.utils.get(ctx.guild.roles, name=role_name)
+    if role is None:
+        return await ctx.reply("❌ Role not found.", mention_author=True)
+
+    await member.add_roles(role)
+    await ctx.reply(f"✅ Added role **{role_name}** to {member.mention}", mention_author=True)
+
+
+# =========================================
+#             ROLE REMOVE
+# =========================================
+@bot.command(name="roleremove")
+async def roleremove(ctx, role_name: str, member: discord.Member = None):
+    if member is None:
+        member = ctx.author
+
+    role = discord.utils.get(ctx.guild.roles, name=role_name)
+    if role is None:
+        return await ctx.reply("❌ Role not found.", mention_author=True)
+
+    await member.remove_roles(role)
+    await ctx.reply(f"❌ Removed role **{role_name}** from {member.mention}", mention_author=True)
+
+
+# =========================================
+#              RUN BOT
+# =========================================
+if TOKEN is None:
+    print("ERROR: TOKEN missing in Railway!")
+else:
+    bot.run(TOKEN)
