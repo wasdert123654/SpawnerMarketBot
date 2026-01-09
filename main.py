@@ -1,148 +1,150 @@
-import os
 import discord
 from discord.ext import commands
+import os
+import re
 
-TOKEN = os.getenv("TOKEN")
-
+# ===== CONFIG =====
+COMMAND_PREFIX = "!"
 CUSTOMER_ROLE_ID = 1446629248491327550
 ADMIN_ROLE_IDS = [1446628032541491384, 1446628032541491384]
 
+# Get token from environment
+TOKEN = os.getenv("TOKEN")
+
+# ===== BOT SETUP =====
 intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
+intents.members = True  # Needed for role commands
+bot = commands.Bot(command_prefix=COMMAND_PREFIX, help_command=None, intents=intents)
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+# ===== USER DATA =====
+igns = {}  # Stores user's IGN
 
-# Store IGN per user
-user_igns = {}
+# ===== UTILITIES =====
+def parse_number(value: str):
+    value = value.lower().replace(",", "").strip()
+    if value.endswith("k"):
+        return int(float(value[:-1]) * 1_000)
+    elif value.endswith("m"):
+        return int(float(value[:-1]) * 1_000_000)
+    elif value.endswith("b"):
+        return int(float(value[:-1]) * 1_000_000_000)
+    else:
+        return int(value)
 
+def calculate_expression(expr: str):
+    def replacer(match):
+        return str(parse_number(match.group(0)))
+    expr = re.sub(r"\d+(\.\d+)?[kKmMbB]", replacer, expr)
+    return int(eval(expr))
 
+# ===== EVENTS =====
 @bot.event
 async def on_ready():
     print(f"Bot is online as {bot.user}!")
 
+# ===== COMMANDS =====
 
-def is_admin(ctx):
-    return any(role.id in ADMIN_ROLE_IDS for role in ctx.author.roles)
-
-
-# ----------------------------- IGN COMMAND -----------------------------
-
+# Custom help
 @bot.command()
-async def ign(ctx, *, ign_name=None):
-    if ign_name is None:
-        return await ctx.reply("❌ Please provide your IGN. Example: `!ign MyName`")
-
-    user_igns[ctx.author.id] = ign_name
-
+async def help(ctx):
     embed = discord.Embed(
-        title="IGN Saved",
-        description=f"Your IGN has been set to **{ign_name}**",
-        color=discord.Color.green()
-    )
-    await ctx.reply(embed=embed)
-
-
-# ----------------------------- CALC COMMAND -----------------------------
-
-@bot.command()
-async def calc(ctx, amount=None):
-    if amount is None:
-        return await ctx.reply("❌ Please provide an amount. Example: `!calc 2m`")
-
-    embed = discord.Embed(
-        title="Calculation",
-        description=f"**Amount: {amount}**",
+        title="Spawner Market Bot - Help",
+        description="List of available commands:",
         color=discord.Color.blue()
     )
-    await ctx.reply(embed=embed)
+    embed.add_field(name="!calc <expression>", value="Calculates values like 1+1 or 5m+2k", inline=False)
+    embed.add_field(name="!acalc <expression>", value="Calculates and outputs /pay <your_ign> <amount>", inline=False)
+    embed.add_field(name="!ign <username>", value="Set your in-game name for acalc", inline=False)
+    embed.add_field(name="!roleadd customer @user", value="Add Customer role (admin only)", inline=False)
+    embed.add_field(name="!roleremove customer @user", value="Remove Customer role (admin only)", inline=False)
+    await ctx.reply(embed=embed, mention_author=False)
 
-
-# ----------------------------- ACALC COMMAND -----------------------------
-
+# Set IGN
 @bot.command()
-async def acalc(ctx, amount=None):
-    if amount is None:
-        return await ctx.reply("❌ Please provide an amount. Example: `!acalc 2m`")
-
-    if ctx.author.id not in user_igns:
-        return await ctx.reply("❌ You must set your IGN first using: `!ign <name>`")
-
-    ign_name = user_igns[ctx.author.id]
-
+async def ign(ctx, *, ign_name):
+    igns[ctx.author.id] = ign_name
     embed = discord.Embed(
-        title="Auto Calculation",
-        description=f"/pay **{ign_name}** {amount}",
-        color=discord.Color.gold()
-    )
-    await ctx.reply(embed=embed)
-
-
-# ----------------------------- ROLE ADD COMMAND -----------------------------
-
-@bot.command()
-async def roleadd(ctx, role_name=None, member: discord.Member = None):
-    if not is_admin(ctx):
-        return await ctx.reply("❌ You do not have permission to use this command.")
-
-    if role_name != "customer":
-        return await ctx.reply("❌ Only the `customer` role can be added.")
-
-    if member is None:
-        return await ctx.reply("❌ Please mention a user. Example: `!roleadd customer @user`")
-
-    role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
-    await member.add_roles(role)
-
-    embed = discord.Embed(
-        title="Role Added",
-        description=f"Added **Customer** role to {member.mention}",
+        title="IGN Set!",
+        description=f"Your IGN is now: `{ign_name}`",
         color=discord.Color.green()
     )
-    await ctx.reply(embed=embed)
+    await ctx.reply(embed=embed, mention_author=False)
 
-
-# ----------------------------- ROLE REMOVE COMMAND -----------------------------
-
+# !calc command
 @bot.command()
-async def roleremove(ctx, role_name=None, member: discord.Member = None):
-    if not is_admin(ctx):
-        return await ctx.reply("❌ You do not have permission to use this command.")
+async def calc(ctx, *, expression):
+    try:
+        total = calculate_expression(expression)
+    except Exception:
+        await ctx.reply("Invalid expression!", mention_author=False)
+        return
+    embed = discord.Embed(
+        title="Calculation Result",
+        description=f"{total:,}",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
 
-    if role_name != "customer":
-        return await ctx.reply("❌ Only the `customer` role can be removed.")
+# !acalc command
+@bot.command()
+async def acalc(ctx, *, expression):
+    user_ign = igns.get(ctx.author.id)
+    if not user_ign:
+        await ctx.reply("Set your IGN first with !ign <username>", mention_author=False)
+        return
+    try:
+        total = calculate_expression(expression)
+    except Exception:
+        await ctx.reply("Invalid expression!", mention_author=False)
+        return
+    embed = discord.Embed(
+        title="Calculation Result",
+        description=f"/pay {user_ign} {total:,}",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
 
-    if member is None:
-        return await ctx.reply("❌ Please mention a user. Example: `!roleremove customer @user`")
-
+# Add customer role
+@bot.command(name="roleadd")
+async def roleadd_customer(ctx, member: discord.Member = None):
+    if ctx.author.id not in ADMIN_ROLE_IDS:
+        await ctx.reply("You do not have permission to use this command.", mention_author=False)
+        return
+    if not member:
+        await ctx.reply("Please mention a user.", mention_author=False)
+        return
     role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
-    await member.remove_roles(role)
+    if not role:
+        await ctx.reply("Customer role not found.", mention_author=False)
+        return
+    await member.add_roles(role)
+    embed = discord.Embed(
+        title="Role Added",
+        description=f"Added `{role.name}` role to {member.display_name}",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed, mention_author=False)
 
+# Remove customer role
+@bot.command(name="roleremove")
+async def roleremove_customer(ctx, member: discord.Member = None):
+    if ctx.author.id not in ADMIN_ROLE_IDS:
+        await ctx.reply("You do not have permission to use this command.", mention_author=False)
+        return
+    if not member:
+        await ctx.reply("Please mention a user.", mention_author=False)
+        return
+    role = ctx.guild.get_role(CUSTOMER_ROLE_ID)
+    if not role:
+        await ctx.reply("Customer role not found.", mention_author=False)
+        return
+    await member.remove_roles(role)
     embed = discord.Embed(
         title="Role Removed",
-        description=f"Removed **Customer** role from {member.mention}",
+        description=f"Removed `{role.name}` role from {member.display_name}",
         color=discord.Color.red()
     )
-    await ctx.reply(embed=embed)
+    await ctx.reply(embed=embed, mention_author=False)
 
-
-# ----------------------------- HELP COMMAND -----------------------------
-
-@bot.command(name="commands")
-async def help_command(ctx):
-    embed = discord.Embed(
-        title="Spawner Market Bot Commands",
-        color=discord.Color.blurple()
-    )
-
-    embed.add_field(name="!ign <name>", value="Set your IGN.", inline=False)
-    embed.add_field(name="!calc <amount>", value="Shows an amount.", inline=False)
-    embed.add_field(name="!acalc <amount>", value="Shows /pay with your saved IGN.", inline=False)
-    embed.add_field(name="!roleadd customer @user", value="Admin only – adds Customer role.", inline=False)
-    embed.add_field(name="!roleremove customer @user", value="Admin only – removes Customer role.", inline=False)
-
-    await ctx.reply(embed=embed)
-
-
+# ===== RUN BOT =====
 bot.run(TOKEN)
-
