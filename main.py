@@ -101,7 +101,7 @@ async def acalc(ctx, *, expression):
         return
     embed = discord.Embed(
         title="ACalc Result",
-        description=f"/pay {user_ign} {total:,}",
+        description=f"/pay {user_ign} {total:}",
         color=discord.Color.green()
     )
     await ctx.reply(embed=embed, mention_author=False)
@@ -175,3 +175,4 @@ async def roleremove(ctx, member: discord.Member = None):
 
 # RUN BOT
 bot.run(TOKEN)
+
